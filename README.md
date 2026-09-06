@@ -37,6 +37,16 @@ Claude Code에서:
 
 여러 세션이 있으면 제목·시각·ID로 선택합니다. 선택한 세션의 맥락을 가져온 뒤 출처와 생략 범위를 확인하고 다음 작업을 지시하면 됩니다. skill은 `session-bridge`입니다.
 
+스킬을 직접 지정할 수도 있습니다.
+
+```text
+Codex: $session-bridge Claude Code에서 하던 이 프로젝트 세션을 찾아줘.
+Claude Code 개인 스킬: /session-bridge Codex에서 하던 이 프로젝트 세션을 찾아줘.
+Claude Code 플러그인: /codex-claude-session-bridge:session-bridge Codex에서 하던 이 프로젝트 세션을 찾아줘.
+```
+
+Codex에서는 플러그인을 선택한 작업에서, Claude Code에서는 아래의 개인 스킬 설치 또는 플러그인 연결을 마친 새 세션에서 호출합니다. 개인 스킬과 Claude Code 플러그인 중 한 설치 방식을 사용하세요.
+
 | 도구 | 용도 |
 | --- | --- |
 | `list_sessions` | 현재 프로젝트의 세션 목록 |
@@ -58,6 +68,25 @@ node src/cli.js read --provider codex --project 'C:\work\my-project' --session '
 
 ## Claude Code 연결
 
+### 개인 스킬로 영구 설치
+
+의존성이 설치된 플러그인 폴더를 먼저 준비합니다. 다음 PowerShell 명령은 현재 사용자의 모든 프로젝트에서 `/session-bridge`를 사용할 수 있도록 스킬과 MCP 서버를 연결합니다. 기존 같은 이름의 스킬이나 서버가 있으면 해당 설치를 확인하고 갱신하세요.
+
+```powershell
+$bridgeDir = Join-Path $HOME 'plugins\codex-claude-session-bridge'
+$skillDir = Join-Path $HOME '.claude\skills\session-bridge'
+if (Test-Path -LiteralPath $skillDir) { throw '기존 스킬이 있습니다. 설치를 확인하세요.' }
+if (!(Test-Path -LiteralPath (Join-Path $bridgeDir 'src\server.js'))) { throw '먼저 플러그인을 설치하세요.' }
+claude mcp add --scope user --transport stdio session-bridge (Get-Command node).Source (Join-Path $bridgeDir 'src\server.js') --env "SESSION_BRIDGE_CODEX_HOME=$HOME\.codex" "CLAUDE_CONFIG_DIR=$HOME\.claude"
+if ($LASTEXITCODE -ne 0) { throw 'MCP 등록에 실패했습니다.' }
+New-Item -ItemType Directory -Path $skillDir | Out-Null
+Copy-Item -LiteralPath (Join-Path $bridgeDir 'skills\session-bridge\SKILL.md') -Destination (Join-Path $skillDir 'SKILL.md')
+```
+
+스킬 파일만 복사하면 MCP 도구가 연결되지 않습니다. 설치 명령은 모델을 실행하지 않지만, 이후 Claude Code에서 대화하려면 해당 계정에서 Claude Code를 이용할 수 있어야 합니다. 개인 스킬 복사본은 원본 플러그인 갱신 후 같은 파일로 갱신합니다.
+
+### 플러그인으로 세션별 연결
+
 소스 설치 후 프로젝트 폴더에서 plugin 디렉터리를 명시합니다.
 
 ```powershell
@@ -65,6 +94,29 @@ claude --plugin-dir 'C:\path\to\codex-claude-session-bridge'
 ```
 
 또는 아래의 self-contained tgz를 별도 폴더에 풀어 그 폴더를 지정합니다. `.claude-plugin/plugin.json`의 inline MCP가 `${CLAUDE_PLUGIN_ROOT}/src/server.js`를 실행합니다. 설치된 Claude 버전의 자동 npm 설치에 의존하지 않습니다.
+
+## 일반 Claude Desktop 채팅에서 사용
+
+Claude Desktop의 로컬 MCP 연결은 Claude Code 구독과 별개이며 무료 플랜에서도 사용할 수 있습니다. [공식 요금표](https://claude.com/pricing), [로컬 MCP 설정 안내](https://modelcontextprotocol.io/docs/develop/connect-local-servers)를 참고하세요.
+
+Windows의 `%APPDATA%\Claude\claude_desktop_config.json`에서 기존 `mcpServers`에 다음 항목을 추가합니다. 기존 설정 전체를 교체하지 말고, 실행 파일과 홈 경로를 실제 설치 경로로 바꿉니다.
+
+```json
+{
+    "session-bridge": {
+        "command": "C:\\Program Files\\nodejs\\node.exe",
+        "args": ["C:\\Users\\사용자\\plugins\\codex-claude-session-bridge\\src\\server.js"],
+        "env": {
+            "SESSION_BRIDGE_CODEX_HOME": "C:\\Users\\사용자\\.codex",
+            "CLAUDE_CONFIG_DIR": "C:\\Users\\사용자\\.claude"
+        }
+    }
+}
+```
+
+Claude 앱을 완전히 종료하고 다시 열어 연결을 활성화합니다. 일반 채팅에는 Claude Code의 `/session-bridge` 스킬이 설치되는 것이 아니므로, `session-bridge` 도구로 원하는 Codex 세션을 가져오라고 요청하면서 프로젝트 절대 경로를 제공합니다.
+
+이 연결은 **일반 Claude 채팅에서 Codex 또는 Claude Code의 저장된 맥락을 가져오는** 방향을 지원합니다. **일반 Claude 채팅 기록을 Codex로 가져오는 기능은 현재 구현에 없습니다.** Claude Code 기록과 일반 채팅 기록은 별개입니다. 일반 채팅의 양방향 공유에는 별도의 내보내기/가져오기 기능이 필요합니다.
 
 ## Codex 개인 플러그인 설치
 
