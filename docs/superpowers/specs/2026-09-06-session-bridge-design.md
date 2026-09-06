@@ -1,6 +1,6 @@
 # Codex ↔ Claude Code Session Bridge 설계
 
-상태: 1차 리뷰 R1–R6 반영, 2차 독립 리뷰 대기. 사용자는 같은 PC에서 세션을 선택해 양방향으로 이어가기를 선택했다.
+상태: 1·2차 리뷰 반영, 3차 독립 리뷰 대기. 사용자는 같은 PC에서 세션을 선택해 양방향으로 이어가기를 선택했다.
 
 ## 목표와 승인 주체
 
@@ -23,6 +23,8 @@ Codex에서 Claude Code 세션을 선택하거나 Claude Code에서 Codex 세션
 `src/providers/codex.js`: 설치된 Codex app-server의 initialize(experimentalApi=true) → initialized 이후 thread/list, thread/read, thread/turns/list만 허용한다. metadata는 thread/read(includeTurns=false)로 먼저 읽고 프로젝트와 ID를 검증한다. historyMode=paginated는 thread/turns/list(itemsView=full, sortDirection=desc, limit=50)를 cursor로 읽으며, legacy/default는 검증 후 thread/read(includeTurns=true)를 사용한다. 최근 페이지를 먼저 모은 뒤 턴과 표시 메시지를 시간순으로 정렬하며 item ID 중복을 제거한다. 알 수 없는 historyMode는 오류다. thread/start, turn/start, resume, 계정/사용량 변이 메서드는 제공하지 않는다. child process는 shell=false, windowsHide=true, 고정 app-server 인자, timeout, 종료 정리를 적용한다.
 
 Codex engine은 명시적 SESSION_BRIDGE_CODEX_EXECUTABLE, Windows 데스크톱 설치 경로의 최신 codex.exe, PATH의 CLI 순서로 찾는다. 이 PC의 Desktop 0.153.0으로 페이지형 기록 읽기를 확인했다. CLI 0.145.0은 최신 Desktop item을 읽지 못할 수 있으며 이 경우 명확한 호환성 오류를 반환한다. CODEX_HOME 또는 SESSION_BRIDGE_CODEX_HOME으로 원본 home을 지정할 수 있다. 목록에는 useStateDbOnly=true, sortKey=updated_at, sortDirection=desc, archived=false를 고정한다. 자동 JSONL 복구 fallback은 없다. DB가 미완성이라 목록에 없는 세션이 있을 수 있다. subagent(parentThreadId 존재)는 제외하고 같은 프로젝트의 일반/프로그램 생성 세션은 포함한다.
+
+thread/list의 sourceKinds는 `["cli","vscode","exec","appServer","subAgent","subAgentReview","subAgentCompact","subAgentThreadSpawn","subAgentOther","unknown"]`을 명시한다. 기본값(cli/vscode)에 의존하면 Desktop/exec가 빠지므로 모든 요청에서 이 목록을 전달하고 parentThreadId가 있는 항목을 제외한다.
 
 `src/providers/claude.js`: 고정 버전의 공식 `@anthropic-ai/claude-agent-sdk`에서 listSessions/getSessionInfo/getSessionMessages만 동적으로 불러온다. getSessionInfo(sessionId,{dir}) 결과의 ID와 canonical cwd를 먼저 검증한 후에만 getSessionMessages를 호출한다. 메시지 session_id가 존재하면 같은 ID인지 확인한다. query/resume/import/write API는 호출하지 않는다. 분기·압축 처리는 공식 reader에 맡긴다. CLAUDE_CONFIG_DIR와 SDK 기본 위치를 따른다. listSessions는 includeWorktrees=false, includeProgrammatic=true를 명시한다. 0.3.263의 읽기 API는 JavaScript로 동작하므로 native optional 패키지는 설치하지 않는다. 본문은 metadata fileSize가 64 MiB 이하일 때 읽으며 결과 텍스트 32 MiB 초과는 명확한 크기 오류다.
 
@@ -62,6 +64,8 @@ metadata 제한: sessionId 200자, 절대 projectPath 4096자, title 200자, war
 저장소명은 `codex-claude-session-bridge`이며 같은 이름의 Codex·Claude plugin manifest를 둔다. `.codex-plugin/plugin.json`은 `./.codex-mcp.json`을 명시하고 서버 설정은 `command: node`, `args: [./src/server.js]`, `cwd: .`로 설치 루트에 상대 해석되도록 한다. `.claude-plugin/plugin.json`은 `${CLAUDE_PLUGIN_ROOT}/src/server.js`를 inline MCP 설정으로 사용한다. 이름이 충돌하는 공통 `.mcp.json`은 두지 않는다.
 
 `npm ci --omit=optional --ignore-scripts`로 고정 의존성을 설치한다. runtime 2개 패키지를 bundledDependencies에 명시한 npm pack artifact를 사용한다. 별도 경로로 tgz를 풀면 필요한 node_modules가 물리적 디렉터리로 포함되고 source checkout에 의존하지 않는다. Codex 0.153.0 cache copier는 이 디렉터리를 재귀 복사한다. 공백·한글이 있는 임시 루트에서 다른 cwd로 handshake를 실행하고 의존성 해석이 artifact 내부임을 검증한다. 개인 Codex marketplace 등록·설치 절차와 Claude --plugin-dir를 제공하며 시작 시 자동 npm/network 호출을 숨기지 않는다. 사용자 전역 파일을 무조건 덮어쓰는 설치 스크립트는 만들지 않는다. 독립 Git repo에 계획, 리뷰, 구현, 테스트, README와 lockfile을 커밋한다.
+
+package-lock.json은 재현 가능한 소스 설치용으로 Git에 포함한다. npm pack artifact에는 npm의 기본 제외 정책에 따라 lockfile이 없으며 이미 bundled runtime dependencies가 있으므로 artifact/cache에서 npm ci를 실행하지 않는다.
 
 ## 수용 기준
 
