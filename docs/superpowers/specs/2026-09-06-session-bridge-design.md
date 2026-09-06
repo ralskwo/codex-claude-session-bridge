@@ -28,6 +28,8 @@ thread/list의 sourceKinds는 `["cli","vscode","exec","appServer","subAgent","su
 
 `src/providers/claude.js`: 고정 버전의 공식 `@anthropic-ai/claude-agent-sdk`에서 listSessions/getSessionInfo/getSessionMessages만 동적으로 불러온다. getSessionInfo(sessionId,{dir}) 결과의 ID와 canonical cwd를 먼저 검증한 후에만 getSessionMessages를 호출한다. 메시지 session_id가 존재하면 같은 ID인지 확인한다. query/resume/import/write API는 호출하지 않는다. 분기·압축 처리는 공식 reader에 맡긴다. CLAUDE_CONFIG_DIR와 SDK 기본 위치를 따른다. listSessions는 includeWorktrees=false, includeProgrammatic=true를 명시한다. 0.3.263의 읽기 API는 JavaScript로 동작하므로 native optional 패키지는 설치하지 않는다. 본문은 metadata fileSize가 64 MiB 이하일 때 읽으며 결과 텍스트 32 MiB 초과는 명확한 크기 오류다.
 
+코드 리뷰 실측 보완: Claude SDK는 precompact/malformed 항목을 조용히 생략할 수 있고 완전성 표시를 반환하지 않는다. 따라서 Claude는 항상 historyComplete=false, omittedMessages=null, truncated=true 및 SDK_RECONSTRUCTED 경고로 반환한다. 이는 원본 전체 역사에 대한 미확인 표시이며 반환된 현재 대화 맥락은 정상적으로 사용할 수 있다. 이 보수적 계약은 실제 SDK 합성 압축/손상 fixture와 source byte-preservation으로 검증한다.
+
 `src/bridge.js`: provider 출력의 메타데이터를 검증하고 양쪽 동일한 계약으로 정규화한다. 모든 공개 작업은 명시적인 절대 `projectPath`를 요구하며, realpath로 정규화한 기존 디렉터리와 세션 cwd가 정확히 일치해야 한다. 하위 폴더·다른 worktree를 자동 포함하지 않는다. cwd가 없거나 불명확하면 세션을 제외한다. 세션 ID는 opaque ID로 취급하며 파일 경로로 사용하지 않는다.
 
 공개 메서드:

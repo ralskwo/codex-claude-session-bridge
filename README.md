@@ -123,7 +123,7 @@ node src/cli.js doctor
 
 - 기존 디렉터리의 canonical 경로가 정확히 같은 세션만 허용합니다. 하위 폴더·다른 worktree는 자동 포함하지 않습니다. 잘못된 프로젝트/ID는 본문 조회 전에 거절합니다.
 - Codex는 비archived 세션, 일반 및 프로그램 생성 세션을 찾고 내부 subagent 세션은 제외합니다. `useStateDbOnly:true`를 사용하므로 DB에 없는 기록은 목록에서 빠질 수 있습니다. 자동 복구는 요청하지 않습니다.
-- Claude는 공식 reader의 분기·압축 해석을 사용하며 metadata가 있는 세션을 읽습니다. source transcript 64 MiB, 표시 텍스트 32 MiB 상한이 있습니다.
+- Claude는 공식 reader의 분기·압축 해석을 사용하며 metadata가 있는 세션을 읽습니다. SDK는 압축 이전 내용과 손상된 항목을 생략할 수 있고 완전성 정보를 제공하지 않으므로 항상 `historyComplete:false`, `omittedMessages:null`, `SDK_RECONSTRUCTED`로 표시합니다. 읽어온 맥락은 사용할 수 있지만 전체 원본 기록을 가져왔다고 보장하지 않습니다. source transcript 64 MiB, 표시 텍스트 32 MiB 상한이 있습니다.
 - Codex 페이지형 기록은 최신 1000턴 또는 200개 표시 메시지까지 읽습니다. 모든 기록을 읽지 못하면 `historyComplete:false`, `omittedMessages:null`입니다. 진행 중인 세션은 현재 시점의 스냅샷입니다.
 - 목록은 최대 10000개 탐색 후 갱신 시각/ID순으로 정렬합니다. 페이지 이동 사이 원본이 변경되면 중복·누락이 생길 수 있습니다.
 - 기본 최근 40메시지/24000 UTF-16 문자, 최대 200메시지/100000문자입니다. 실제 직렬화된 CLI/MCP 결과는 중복 표현까지 2 MiB로 제한하며 초과 시 `OUTPUT_TOO_LARGE`를 반환합니다.

@@ -27,7 +27,8 @@ const ERROR_MESSAGES = Object.freeze({
 const WARNING_MESSAGES = Object.freeze({
     STATE_DB_ONLY: "상태 데이터베이스의 목록이며 일부 세션이 누락될 수 있습니다.",
     SCAN_LIMIT: "목록 탐색 상한에 도달했습니다.",
-    HISTORY_LIMIT: "기록 읽기 상한에 도달하여 전체 생략 수를 알 수 없습니다.",
+    HISTORY_LIMIT: "전체 기록 확인이 제한되어 전체 생략 수를 알 수 없습니다.",
+    SDK_RECONSTRUCTED: "Claude SDK가 재구성한 대화이며 원본 전체 기록의 포함 여부는 확인할 수 없습니다.",
     REPEATED_CURSOR: "반복된 페이지 커서로 기록 읽기를 중단했습니다.",
     INCOMPLETE_ITEMS: "불완전한 표시 항목이 있어 일부 기록을 제외했습니다.",
     IN_PROGRESS: "진행 중인 세션의 현재 시점 기록입니다.",
