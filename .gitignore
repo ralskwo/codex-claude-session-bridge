@@ -1,0 +1,9 @@
+node_modules/
+dist/
+output/
+coverage/
+.superpowers/
+*.tgz
+*.log
+.env
+!.env.example
