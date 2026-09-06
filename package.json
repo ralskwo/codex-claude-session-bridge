@@ -1,0 +1,30 @@
+{
+    "name": "codex-claude-session-bridge",
+    "version": "0.1.0",
+    "description": "같은 PC에서 Codex와 Claude Code 세션을 선택해 작업 맥락을 이어가는 로컬 플러그인",
+    "private": true,
+    "type": "commonjs",
+    "engines": { "node": ">=22" },
+    "scripts": {
+        "test": "node --test test/*.test.js",
+        "start": "node src/server.js",
+        "doctor": "node src/cli.js doctor",
+        "smoke:local": "node scripts/smoke-local.js"
+    },
+    "dependencies": {
+        "@anthropic-ai/claude-agent-sdk": "0.3.263",
+        "@modelcontextprotocol/sdk": "1.30.0"
+    },
+    "bundledDependencies": [
+        "@anthropic-ai/claude-agent-sdk",
+        "@modelcontextprotocol/sdk"
+    ],
+    "files": [
+        "src/",
+        ".codex-plugin/plugin.json",
+        ".claude-plugin/plugin.json",
+        ".codex-mcp.json",
+        "skills/",
+        "README.md"
+    ]
+}
