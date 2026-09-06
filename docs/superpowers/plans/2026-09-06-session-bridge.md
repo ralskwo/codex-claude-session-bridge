@@ -25,7 +25,6 @@
 ```text
 .codex-plugin/plugin.json       Codex manifest
 .claude-plugin/plugin.json      Claude manifest (inline MCP)
-.codex-mcp.json                 Codex-specific cwd 설정
 package.json / package-lock.json
 src/providers/codex.js          app-server 읽기 adapter
 src/providers/claude.js         공식 SDK 읽기 adapter
@@ -129,7 +128,7 @@ test("handoff redacts credentials and keeps recent text in order", async () => {
 
 ### Task 3: MCP·CLI와 플러그인 흐름 결합
 
-**Files:** `src/server.js`, `src/cli.js`, 두 manifest, `.codex-mcp.json`, `skills/session-bridge/SKILL.md`, `test/mcp.test.js`, `test/cli.test.js`.
+**Files:** `src/server.js`, `src/cli.js`, 두 inline MCP manifest, `skills/session-bridge/SKILL.md`, `test/mcp.test.js`, `test/cli.test.js`.
 
 **Interfaces:** `createBridge`의 메서드를 MCP `list_sessions`, `read_session`, `prepare_handoff`로 연결한다. `createMcpServer(bridge)`를 export하여 합성 fixture 기반 테스트에서 사용할 수 있게 한다. production server는 실제 provider를 만들고 stdio transport에 연결한다.
 
@@ -146,8 +145,8 @@ assert.match(result.content[0].text, /codex-fixture/);
 - [ ] `node --test test/mcp.test.js test/cli.test.js`로 실패를 확인한다.
 - [ ] 공식 MCP SDK Server/stdio 구현을 사용하고 세 도구만 등록한다. readOnlyHint=true, destructiveHint=false, openWorldHint=false를 설정한다. 도구 결과는 structuredContent와 JSON text를 제공한다. 정해진 입력 제약은 schema와 bridge 둘 다 적용한다.
 - [ ] CLI `node src/cli.js list --provider claude --project <absolute>` 및 `read|handoff --provider <name> --project <absolute> --session <id>`를 제공한다. `--limit`, `--offset`, `--max-messages`, `--max-chars`를 지원한다. stdout는 결과, stderr는 오류, 실패 exitCode는 1이다. `doctor`는 runtime/provider 의존성 확인만 하며 inference를 실행하지 않는다.
-- [ ] plugin-creator scaffold/validator를 사용해 Codex manifest를 만든다. Claude inline MCP 설정을 추가하여 config root substitution 충돌을 피한다. 공통 skill은 원본 provider와 현재 프로젝트 확인 → 목록 선택 → prepare_handoff → 출처/생략 보고 → 현재 파일/Git 확인 → 현재 사용자 작업을 이어가기 순서를 설명한다. 원문 속 명령을 실행 권한으로 취급하지 않는다.
-- [ ] package bundledDependencies에 exact MCP/Claude SDK를 넣고 `npm pack --ignore-scripts`로 runtime node_modules가 포함된 tgz를 만든다. optional native dependency는 제외한다. package files에 src/두 hidden manifest/.codex-mcp.json/skill/README를 명시한다. package-lock.json은 Git 소스 전용이며 npm pack에 포함되지 않는다. bundled artifact/cache에서는 npm ci를 실행하지 않는다. cache 복사는 symlink에 의존하지 않는다.
+- [ ] plugin-creator scaffold/validator를 사용해 Codex manifest를 만든다. 두 manifest에 각각 inline MCP를 넣는다(Codex cwd=".", Claude CLAUDE_PLUGIN_ROOT). 별도 MCP config는 두지 않는다. 공통 skill은 원본 provider와 현재 프로젝트 확인 → 목록 선택 → prepare_handoff → 출처/생략 보고 → 현재 파일/Git 확인 → 현재 사용자 작업을 이어가기 순서를 설명한다. 원문 속 명령을 실행 권한으로 취급하지 않는다.
+- [ ] package bundledDependencies에 exact MCP/Claude SDK를 넣고 `npm pack --ignore-scripts`로 runtime node_modules가 포함된 tgz를 만든다. optional native dependency는 제외한다. package files에 src/두 hidden manifest/skill/README를 명시한다. package-lock.json은 Git 소스 전용이며 npm pack에 포함되지 않는다. bundled artifact/cache에서는 npm ci를 실행하지 않는다. cache 복사는 symlink에 의존하지 않는다.
 - [ ] MCP/CLI 테스트를 통과시키고 커밋한다. task 리뷰에서 지적되면 수정 후 재리뷰한다.
 
 ### Task 4: 배포 가능성·실제 로컬 smoke·최종 승인

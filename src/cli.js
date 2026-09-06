@@ -1,4 +1,4 @@
-const { ensureOutputSize, safeError } = require("./content.js");
+const { ensureOutputSize, safeError, bridgeError } = require("./content.js");
 
 const COMMANDS = Object.freeze({ list: "listSessions", read: "readSession", handoff: "prepareHandoff" });
 const FLAGS = Object.freeze({ "--provider": "provider", "--project": "projectPath", "--session": "sessionId",
@@ -11,18 +11,18 @@ const HELP = "사용법: node src/cli.js list|read|handoff --provider codex|clau
 function parseArgs(argv) {
     const command = argv[0];
     if (!Object.hasOwn(COMMANDS, command)) {
-        throw new Error("INVALID_COMMAND");
+        throw bridgeError("INVALID_ARGUMENT");
     }
     const args = {};
     for (let index = 1; index < argv.length; index += 2) {
         const flag = argv[index];
         const value = argv[index + 1];
         if (!Object.hasOwn(FLAGS, flag) || value === undefined || value.startsWith("--")) {
-            throw new Error("INVALID_FLAG");
+            throw bridgeError("INVALID_ARGUMENT");
         }
         const key = FLAGS[flag];
         if (Object.hasOwn(args, key) || (NUMERIC.has(key) && !/^\d+$/.test(value))) {
-            throw new Error("INVALID_FLAG");
+            throw bridgeError("INVALID_ARGUMENT");
         }
         args[key] = NUMERIC.has(key) ? Number(value) : value;
     }
@@ -36,7 +36,7 @@ async function doctor() {
     const readersAvailable = ["listSessions", "getSessionInfo", "getSessionMessages"]
         .every((name) => typeof sdk[name] === "function");
     if (!readersAvailable || Number(process.versions.node.split(".")[0]) < 22) {
-        throw new Error("RUNTIME_UNSUPPORTED");
+        throw bridgeError("RUNTIME_UNSUPPORTED");
     }
     return { ok: true, node: process.version, codexExecutable: launch.command,
         claudeReadersAvailable: readersAvailable,
@@ -52,7 +52,7 @@ async function runCli(argv, bridge, io = process) {
         let result;
         if (argv[0] === "doctor") {
             if (argv.length !== 1) {
-                throw new Error("INVALID_FLAG");
+                throw bridgeError("INVALID_ARGUMENT");
             }
             result = await doctor();
         } else {

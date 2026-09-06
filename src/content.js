@@ -1,5 +1,6 @@
 const ERROR_MESSAGES = Object.freeze({
     INVALID_ARGUMENT: "요청 인자 또는 옵션이 올바르지 않습니다.",
+    RUNTIME_UNSUPPORTED: "Node.js 22 이상과 지원되는 Claude SDK 읽기 API가 필요합니다.",
     INVALID_PROJECT: "프로젝트 경로는 존재하는 디렉터리의 절대 경로여야 합니다.",
     PROJECT_MISMATCH: "선택한 세션의 프로젝트가 요청한 프로젝트와 다릅니다.",
     INVALID_METADATA: "세션 메타데이터가 올바르지 않습니다.",

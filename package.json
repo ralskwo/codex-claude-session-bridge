@@ -23,7 +23,6 @@
         "src/",
         ".codex-plugin/plugin.json",
         ".claude-plugin/plugin.json",
-        ".codex-mcp.json",
         "skills/",
         "README.md"
     ]

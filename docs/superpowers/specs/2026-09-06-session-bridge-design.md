@@ -1,6 +1,6 @@
 # Codex ↔ Claude Code Session Bridge 설계
 
-상태: 1·2차 리뷰 반영, 3차 독립 리뷰 대기. 사용자는 같은 PC에서 세션을 선택해 양방향으로 이어가기를 선택했다.
+상태: 3차 독립 리뷰 승인. 인라인 MCP 패키징 수정도 별도 승인. 사용자는 같은 PC에서 세션을 선택해 양방향으로 이어가기를 선택했다.
 
 ## 목표와 승인 주체
 
@@ -61,7 +61,7 @@ metadata 제한: sessionId 200자, 절대 projectPath 4096자, title 200자, war
 
 ## 설치와 배포 산출물
 
-저장소명은 `codex-claude-session-bridge`이며 같은 이름의 Codex·Claude plugin manifest를 둔다. `.codex-plugin/plugin.json`은 `./.codex-mcp.json`을 명시하고 서버 설정은 `command: node`, `args: [./src/server.js]`, `cwd: .`로 설치 루트에 상대 해석되도록 한다. `.claude-plugin/plugin.json`은 `${CLAUDE_PLUGIN_ROOT}/src/server.js`를 inline MCP 설정으로 사용한다. 이름이 충돌하는 공통 `.mcp.json`은 두지 않는다.
+저장소명은 `codex-claude-session-bridge`이며 같은 이름의 Codex·Claude plugin manifest를 둔다. `.codex-plugin/plugin.json`의 inline mcpServers 객체에 `command: node`, `args: [./src/server.js]`, `cwd: .`를 넣어 설치 루트에 상대 해석되도록 한다. `.claude-plugin/plugin.json`은 `${CLAUDE_PLUGIN_ROOT}/src/server.js`를 inline MCP 설정으로 사용한다. 공통 `.mcp.json`이나 별도 custom MCP 설정 파일은 두지 않는다. 검증기가 custom 파일명을 거절한 실제 결과와 수정 승인은 `docs/reviews/plan-packaging-amendment.md`에 기록했다.
 
 `npm ci --omit=optional --ignore-scripts`로 고정 의존성을 설치한다. runtime 2개 패키지를 bundledDependencies에 명시한 npm pack artifact를 사용한다. 별도 경로로 tgz를 풀면 필요한 node_modules가 물리적 디렉터리로 포함되고 source checkout에 의존하지 않는다. Codex 0.153.0 cache copier는 이 디렉터리를 재귀 복사한다. 공백·한글이 있는 임시 루트에서 다른 cwd로 handshake를 실행하고 의존성 해석이 artifact 내부임을 검증한다. 개인 Codex marketplace 등록·설치 절차와 Claude --plugin-dir를 제공하며 시작 시 자동 npm/network 호출을 숨기지 않는다. 사용자 전역 파일을 무조건 덮어쓰는 설치 스크립트는 만들지 않는다. 독립 Git repo에 계획, 리뷰, 구현, 테스트, README와 lockfile을 커밋한다.
 

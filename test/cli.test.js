@@ -34,7 +34,7 @@ test("CLI rejects unknown, duplicate, missing and noninteger options before call
         const io = capture();
         assert.equal(await runCli(argv, bridge, io), 1);
         assert.equal(io.output(), "");
-        assert.ok(io.error());
+        assert.equal(JSON.parse(io.error()).code, "INVALID_ARGUMENT");
     }
     assert.equal(calls, 0);
 });
