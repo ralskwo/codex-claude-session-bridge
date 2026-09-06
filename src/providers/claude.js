@@ -46,7 +46,7 @@ function createClaudeProvider(options = {}) {
                 const rows = await sdk.getSessionMessages(sessionId, { dir: project, includeSystemMessages: false });
                 if (!Array.isArray(rows)) { throw new Error(); }
                 const messages = [];
-                const warnings = new Set();
+                const warnings = new Set(["SDK_RECONSTRUCTED"]);
                 let bytes = 0;
                 for (const row of rows) {
                     if (row.session_id != null && row.session_id !== sessionId) {
@@ -72,7 +72,8 @@ function createClaudeProvider(options = {}) {
                     if (bytes > 32 * 1024 * 1024) { throw providerError("SESSION_TOO_LARGE", "세션 텍스트 크기 제한을 초과했습니다."); }
                     if (text) { messages.push({ role: row.type, text }); }
                 }
-                return { sessionId, projectPath: project, messages, historyComplete: !warnings.has("INCOMPLETE_ITEMS"), warnings: [...warnings] };
+                // 공식 reader는 압축·분기·손상 행을 재구성하지만 전체 생략 수는 제공하지 않는다.
+                return { sessionId, projectPath: project, messages, historyComplete: false, warnings: [...warnings] };
             } catch (error) {
                 throw redactFailure(error, "Claude");
             }

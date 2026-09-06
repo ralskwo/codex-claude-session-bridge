@@ -233,7 +233,8 @@ test("Claude official readers use exact scope and select only display text", asy
     assert.equal((await provider.list({ projectPath })).sessions.length, 1);
     const result = await provider.read({ projectPath, sessionId: "session-a" });
     assert.deepEqual(result.messages, [{ role: "user", text: "질문" }, { role: "assistant", text: "답변" }]);
-    assert.equal(result.historyComplete, true);
+    assert.equal(result.historyComplete, false);
+    assert.ok(result.warnings.includes("SDK_RECONSTRUCTED"));
 });
 
 test("Claude rejects invalid metadata and oversized file before body reader", async () => {
