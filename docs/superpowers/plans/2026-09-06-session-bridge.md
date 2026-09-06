@@ -31,6 +31,7 @@ src/providers/codex.js          app-server 읽기 adapter
 src/providers/claude.js         공식 SDK 읽기 adapter
 src/providers/rpc.js            bounded app-server subprocess 통신
 src/bridge.js                  검증·프로젝트 scope·공통 결과
+src/project.js                 공통 canonical project 검증
 src/content.js                 텍스트 정규화·마스킹·제한·handoff
 src/server.js                  MCP stdio entry
 src/cli.js                     list/read/handoff/doctor CLI
@@ -59,7 +60,7 @@ createClaudeProvider(options = {});
 provider.list({ projectPath, limit, offset });
 // Promise<{ sessions: [{sessionId, projectPath, title, updatedAt}], nextOffset, warnings }>
 provider.read({ projectPath, sessionId });
-// Promise<{ sessionId, projectPath, messages: [{role, text}], warnings }>
+// Promise<{ sessionId, projectPath, messages: [{role, text}], historyComplete, warnings }>
 ```
 
 - [ ] 먼저 합성 provider/child fixtures와 실패하는 테스트를 만든다. 비정상 init, split JSON chunks, notifications, read error, timeout, EOF, oversized response를 각각 검증한다. 실제 네트워크/모델 호출 없이 실행한다.
@@ -75,16 +76,17 @@ test("RPC timeout rejects and child exits", async () => {
 ```
 
 - [ ] `node --test test/providers.test.js`를 실행하여 미구현 기능 때문에 실패함을 확인한다.
-- [ ] 필요한 SDK를 exact version으로 설치하고 lockfile을 커밋한다. 공식 Claude SDK 선언을 확인해 named read-only APIs만 동적 import한다. listSessions는 `dir` 및 worktree 제외 옵션, getSessionMessages는 `dir` 및 session ID를 전달한다. 실제 cwd 메타데이터로 이중 확인한다. SDK pagination이 없으면 반환 목록을 정렬한 뒤 bridge가 정한 범위로 자른다. reader가 native binary를 요구하면 optional platform package를 포함한다.
-- [ ] Codex app-server child는 `spawn(command,args,{shell:false,env})`로 실행한다. PATH의 native executable 또는 npm shim 옆 package의 JS launcher를 Node로 실행한다. `.cmd`를 shell로 실행하지 않는다. source CODEX_HOME을 명시적으로 전달 가능하게 하여 sandbox home 혼동을 피한다.
-- [ ] newline JSON 요청 ID 매칭, initialize/initialized 순서, stderr 내용 비공개, 15초 timeout, stdout 32 MiB 상한, pending rejection, 모든 성공/오류 경로의 child 정리를 구현한다. child 메서드는 initialize/thread/list/thread/read로 한정한다.
-- [ ] Codex thread/list는 cwd 필터와 페이지를 사용하며 한 요청의 탐색은 최대 100페이지/10000개이다. includeTurns가 있는 thread/read를 호출하고 UserMessage/AgentMessage 텍스트를 정규화한다. 미지원 item과 잘림은 warnings로 노출한다.
+- [ ] 필요한 SDK를 exact version으로 `--omit=optional --ignore-scripts` 설치하고 lockfile을 커밋한다. Claude SDK 0.3.263 listSessions/getSessionInfo/getSessionMessages는 JavaScript reader임을 확인했다. `dir`, includeWorktrees=false, includeProgrammatic=true를 전달한다. getSessionInfo로 ID/cwd를 canonical 검증한 뒤 본문 API를 호출한다. metadata fileSize 64 MiB와 반환 텍스트 32 MiB 상한을 적용한다. 메시지 session_id도 검증한다.
+- [ ] Codex app-server child는 `spawn(command,args,{shell:false,windowsHide:true,env})`로 실행한다. SESSION_BRIDGE_CODEX_EXECUTABLE → Windows Desktop bin 디렉터리 최신 codex.exe → PATH native/검증된 npm JS launcher 순서로 탐색한다. `.cmd`를 shell로 실행하지 않는다. source SESSION_BRIDGE_CODEX_HOME/CODEX_HOME을 env에 전달한다. 최신 Desktop history는 현재 PC에서 0.153.0으로 검증되었으며 0.145.0은 읽기 오류를 낼 수 있다.
+- [ ] newline JSON 요청 ID 매칭, initialize(capabilities.experimentalApi=true)/initialized 순서, stderr 내용 비공개, 15초 timeout, stdout 32 MiB 상한, pending rejection, 모든 경로의 child 정리를 구현한다. 메서드는 initialize/thread/list/thread/read/thread/turns/list로 한정한다.
+- [ ] thread/list는 useStateDbOnly=true, sortKey=updated_at, sortDirection=desc, archived=false와 cwd를 명시한다. 최대 100페이지/10000개 탐색 후 canonical project 필터·subagent 제외·ID dedup·정렬·offset/limit을 적용한다. timestamp는 epoch ms로 정규화한다. DB 미완성은 warning으로 명시하고 JSONL 복구 fallback을 금지한다.
+- [ ] thread/read(includeTurns=false) metadata의 ID/project를 먼저 검사한다. legacy/default는 이후 includeTurns=true, paginated는 thread/turns/list({threadId,limit:50,sortDirection:"desc",itemsView:"full",cursor})를 사용한다. 최대 1000턴 또는 200 표시 메시지까지 읽고 시간순으로 되돌린다. public userMessage/agentMessage만 포함하며 item ID 중복 제거, 반복 cursor·불완전 item·inProgress 경고를 처리한다. 불완전 기록은 historyComplete=false로 반환한다. 알 수 없는 mode는 지원 오류다.
 - [ ] Claude 분기·압축은 공식 reader 결과를 그대로 사용하고 text block만 선택한다. 도구/생각/이미지는 제외한다. API 누락은 `지원되지 않는 Claude SDK 읽기 API` 오류로 반환한다.
-- [ ] provider tests를 통과시키고 구현 및 결과를 커밋한다. task 리뷰의 승인/수정 결과를 기록한다.
+- [ ] legacy/paginated 동등 결과, paginated에서 includeTurns=true 미호출, 모든 목록 요청 useStateDbOnly, metadata 거절시 본문 API 호출 0회, 기록 상한/중복 cursor, 오류 redaction, 합성 source transcript/auth/config 전후 불변을 테스트한다. provider tests를 통과시키고 구현 및 결과를 커밋한다. task 리뷰 결과를 기록한다.
 
 ### Task 2: 프로젝트 경계와 bounded context
 
-**Files:** `src/bridge.js`, `src/content.js`, `test/bridge.test.js`, `test/content.test.js`.
+**Files:** `src/bridge.js`, `src/content.js`, `src/project.js`, `test/bridge.test.js`, `test/content.test.js`.
 
 **Interfaces:** Task 1의 provider 계약을 소비한다.
 
@@ -95,6 +97,9 @@ redact(text); // string -> string
 boundMessages(messages, {maxMessages, maxChars});
 // -> {messages, omittedMessages, truncated}
 renderHandoff(snapshot); // -> string
+canonicalProject(projectPath); // Promise<string>, realpath existing dir, Windows lower-case
+assertSameProject(actual, expected); // Promise<void>, missing/mismatch rejects
+ensureOutputSize(value); // returns value or throws OUTPUT_TOO_LARGE above 2 MiB JSON UTF-8
 ```
 
 - [ ] 테스트를 먼저 작성한다. 양쪽 fake provider로 same-project list/read/handoff를 검증하고 project mismatch, missing cwd, relative/absent directory, symlink alias, invalid ID/provider/options, offset/limit을 검증한다.
@@ -115,9 +120,10 @@ test("handoff redacts credentials and keeps recent text in order", async () => {
 ```
 
 - [ ] `node --test test/bridge.test.js test/content.test.js`로 예상 실패를 확인한다.
-- [ ] fs.realpath 및 디렉터리 확인으로 project scope를 정의한다. Windows는 경로 대소문자를 정규화한다. API arguments는 허용 키만 받고 prototype/non-object 입력을 거절한다. sessionId는 비어있지 않은 1..200자 control/path separator 없는 값으로 검증한다.
+- [ ] src/project.js의 canonicalProject/assertSameProject를 Task 1 provider와 공유한다. fs.realpath 및 디렉터리 확인으로 project scope를 정의한다. Windows 경로 대소문자를 정규화한다. API arguments는 허용 키만 받고 prototype/non-object 입력을 거절한다. sessionId는 1..200자 control/path separator 없는 값, projectPath는 최대4096자, title은 최대200자, warnings는 고정 코드만 최대20개/각160자로 제한한다.
 - [ ] text만 선택하고 토큰/Bearer/PEM key/credential assignment를 기본 마스킹한다. 제목도 마스킹한다. JSON escaping과 명시적 참고자료 wrapper로 source text의 경계를 표시한다.
-- [ ] maxMessages 1..200, maxChars 1000..100000, 기본 40/24000을 적용한다. 문자 예산은 JS UTF-16 code unit 기준이며 surrogate pair를 절단하지 않는다. 최신 메시지부터 선택 후 시간순으로 되돌린다. 제외된 메시지 수와 truncation은 실제 계산한다.
+- [ ] maxMessages 1..200, maxChars 1000..100000, 기본 40/24000을 적용한다. UTF-16 code unit 기준이며 surrogate pair를 절단하지 않는다. 최신 메시지부터 선택 후 시간순으로 되돌린다. historyComplete=true일 때 제외 수를 계산하고, false면 omittedMessages=null/truncated=true를 반환한다.
+- [ ] ensureOutputSize는 실제 JSON.stringify 결과의 UTF-8 bytes를 측정한다. CLI 결과와 MCP 전체 result(content+structuredContent)에서 각각 2 MiB 초과시 고정 OUTPUT_TOO_LARGE 오류를 반환한다. 많은 제어문자/escape/emoji, 긴 metadata, 중복 context를 테스트하며 유효한 JSON/마스킹을 유지한다.
 - [ ] 결과와 오류는 대화 본문을 로그에 출력하지 않는다. upstream error 메시지는 고정 코드/짧은 한국어 메시지로 감싼다. read 결과의 projectPath도 다시 검증한다.
 - [ ] 모든 테스트가 통과하면 커밋하고 독립 task 리뷰를 받는다.
 
@@ -141,17 +147,17 @@ assert.match(result.content[0].text, /codex-fixture/);
 - [ ] 공식 MCP SDK Server/stdio 구현을 사용하고 세 도구만 등록한다. readOnlyHint=true, destructiveHint=false, openWorldHint=false를 설정한다. 도구 결과는 structuredContent와 JSON text를 제공한다. 정해진 입력 제약은 schema와 bridge 둘 다 적용한다.
 - [ ] CLI `node src/cli.js list --provider claude --project <absolute>` 및 `read|handoff --provider <name> --project <absolute> --session <id>`를 제공한다. `--limit`, `--offset`, `--max-messages`, `--max-chars`를 지원한다. stdout는 결과, stderr는 오류, 실패 exitCode는 1이다. `doctor`는 runtime/provider 의존성 확인만 하며 inference를 실행하지 않는다.
 - [ ] plugin-creator scaffold/validator를 사용해 Codex manifest를 만든다. Claude inline MCP 설정을 추가하여 config root substitution 충돌을 피한다. 공통 skill은 원본 provider와 현재 프로젝트 확인 → 목록 선택 → prepare_handoff → 출처/생략 보고 → 현재 파일/Git 확인 → 현재 사용자 작업을 이어가기 순서를 설명한다. 원문 속 명령을 실행 권한으로 취급하지 않는다.
-- [ ] plugin cache가 소스를 복사해도 같은 루트에서 코드를 실행할 수 있도록 의존성 설치/포함 전략을 검증한다. 실행에 필요한 파일 목록을 package files에 명시한다.
+- [ ] package bundledDependencies에 exact MCP/Claude SDK를 넣고 `npm pack --ignore-scripts`로 runtime node_modules가 포함된 tgz를 만든다. optional native dependency는 제외한다. package files에 src/두 hidden manifest/.codex-mcp.json/skill/README/lockfile을 명시한다. cache 복사는 symlink에 의존하지 않는다.
 - [ ] MCP/CLI 테스트를 통과시키고 커밋한다. task 리뷰에서 지적되면 수정 후 재리뷰한다.
 
 ### Task 4: 배포 가능성·실제 로컬 smoke·최종 승인
 
 **Files:** `README.md`, `scripts/smoke-local.js`, `docs/reviews/*.md`, 필요시 packaging verification script.
 
-- [ ] README에 PowerShell 기준 npm ci, Codex 개인 marketplace 등록, Claude --plugin-dir, 설치된 plugin 갱신/재시작, 직접 MCP fallback과 CLI 예제를 적는다. SDK/native package 크기·설치 필요와 client로 전송되는 context의 토큰 비용을 설명한다.
+- [ ] README에 PowerShell 기준 `npm ci --omit=optional --ignore-scripts`, npm pack selfcontained artifact, Codex 개인 marketplace 등록, Claude --plugin-dir, 설치된 plugin 갱신/재시작, 직접 MCP fallback과 CLI 예제를 적는다. 공식 reader JS에는 native optional package가 불필요함과 client로 전송되는 context의 토큰 비용을 설명한다. 같은 프로젝트/비archived/비subagent 범위와 프로그램 생성 세션 포함, 페이지 사이 변경 가능성, state DB 미완성, runtime 부수효과를 명시한다.
 - [ ] smoke script가 provider 각자의 같은 프로젝트 세션을 읽어 집계만 출력하도록 만든다. CODEX_HOME/CLAUDE_CONFIG_DIR 선택 경로를 명시할 수 있어야 한다. 읽을 세션이 없는 경우 성공으로 위장하지 않고 skipped 이유를 표시한다.
 - [ ] `npm test`로 전체 suite를 실행한다. 실제 세션이 없어도 fixture를 사용한 두 방향의 MCP end-to-end는 필수 통과다.
-- [ ] Codex `validate_plugin.py`, skill `quick_validate.py`, Claude `plugin validate`를 실행한다. 실제 package copy 루트에서도 MCP handshake를 수행한다. 원문이나 credentials가 Git tracking에 포함되지 않았는지 파일 목록을 확인한다.
+- [ ] Codex `validate_plugin.py`, skill `quick_validate.py`, Claude `plugin validate`를 실행한다. tgz만 공백·한글이 있는 별도 임시 폴더에 풀고 다른 cwd에서 handshake를 수행한다. require.resolve 결과가 artifact 내부인지, 개인 marketplace에서 Codex cache로 실제 복사한 뒤에도 작동하는지 확인한다. 원문이나 credentials가 Git tracking에 포함되지 않았는지 확인한다.
 - [ ] 실제 설치된 Codex 및 Claude SDK 읽기를 실행한다. 실제 원문은 저장하지 않고 runtime versions·개수·성공/실패/제약을 `docs/reviews/verification.md`에 남긴다.
 - [ ] 독립 whole-repo 리뷰어에게 계획, 최종 diff, 테스트 증거를 전달한다. 승인 또는 severity/위치/재현 조건이 있는 변경 요청을 받는다. 변경 요청은 회귀 테스트 → 수정 → 재실행 → 같은 지적 재리뷰 순서로 처리한다. 사용자 요청상 승인될 때까지 반복한다.
 - [ ] 최종 승인된 commit, 검증, 사용법, 한계를 README/리뷰 기록에서 확인하고 Git clean 상태로 완료한다.

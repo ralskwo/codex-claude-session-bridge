@@ -1,6 +1,6 @@
 # Codex ↔ Claude Code Session Bridge 설계
 
-상태: 독립 계획 리뷰 대기. 사용자는 같은 PC에서 세션을 선택해 양방향으로 이어가기를 선택했다.
+상태: 1차 리뷰 R1–R6 반영, 2차 독립 리뷰 대기. 사용자는 같은 PC에서 세션을 선택해 양방향으로 이어가기를 선택했다.
 
 ## 목표와 승인 주체
 
@@ -20,9 +20,11 @@ Codex에서 Claude Code 세션을 선택하거나 Claude Code에서 Codex 세션
 
 ## 구성과 공개 계약
 
-`src/providers/codex.js`: 설치된 Codex app-server의 initialize → initialized → thread/list 또는 thread/read(includeTurns=true)만 사용한다. thread/start, turn/start, resume, 계정/사용량 변이 메서드는 제공하지 않는다. 로컬 CLI가 필요하다. child process는 shell=false, 고정 app-server 인자, timeout, 종료 정리를 적용한다.
+`src/providers/codex.js`: 설치된 Codex app-server의 initialize(experimentalApi=true) → initialized 이후 thread/list, thread/read, thread/turns/list만 허용한다. metadata는 thread/read(includeTurns=false)로 먼저 읽고 프로젝트와 ID를 검증한다. historyMode=paginated는 thread/turns/list(itemsView=full, sortDirection=desc, limit=50)를 cursor로 읽으며, legacy/default는 검증 후 thread/read(includeTurns=true)를 사용한다. 최근 페이지를 먼저 모은 뒤 턴과 표시 메시지를 시간순으로 정렬하며 item ID 중복을 제거한다. 알 수 없는 historyMode는 오류다. thread/start, turn/start, resume, 계정/사용량 변이 메서드는 제공하지 않는다. child process는 shell=false, windowsHide=true, 고정 app-server 인자, timeout, 종료 정리를 적용한다.
 
-`src/providers/claude.js`: 고정 버전의 공식 `@anthropic-ai/claude-agent-sdk`에서 listSessions/getSessionMessages만 동적으로 불러온다. query/resume/import/write API는 호출하지 않는다. 분기·압축 처리는 공식 reader에 맡긴다. Claude 저장소는 SDK가 지원하는 기본 위치와 CLAUDE_CONFIG_DIR를 따른다.
+Codex engine은 명시적 SESSION_BRIDGE_CODEX_EXECUTABLE, Windows 데스크톱 설치 경로의 최신 codex.exe, PATH의 CLI 순서로 찾는다. 이 PC의 Desktop 0.153.0으로 페이지형 기록 읽기를 확인했다. CLI 0.145.0은 최신 Desktop item을 읽지 못할 수 있으며 이 경우 명확한 호환성 오류를 반환한다. CODEX_HOME 또는 SESSION_BRIDGE_CODEX_HOME으로 원본 home을 지정할 수 있다. 목록에는 useStateDbOnly=true, sortKey=updated_at, sortDirection=desc, archived=false를 고정한다. 자동 JSONL 복구 fallback은 없다. DB가 미완성이라 목록에 없는 세션이 있을 수 있다. subagent(parentThreadId 존재)는 제외하고 같은 프로젝트의 일반/프로그램 생성 세션은 포함한다.
+
+`src/providers/claude.js`: 고정 버전의 공식 `@anthropic-ai/claude-agent-sdk`에서 listSessions/getSessionInfo/getSessionMessages만 동적으로 불러온다. getSessionInfo(sessionId,{dir}) 결과의 ID와 canonical cwd를 먼저 검증한 후에만 getSessionMessages를 호출한다. 메시지 session_id가 존재하면 같은 ID인지 확인한다. query/resume/import/write API는 호출하지 않는다. 분기·압축 처리는 공식 reader에 맡긴다. CLAUDE_CONFIG_DIR와 SDK 기본 위치를 따른다. listSessions는 includeWorktrees=false, includeProgrammatic=true를 명시한다. 0.3.263의 읽기 API는 JavaScript로 동작하므로 native optional 패키지는 설치하지 않는다. 본문은 metadata fileSize가 64 MiB 이하일 때 읽으며 결과 텍스트 32 MiB 초과는 명확한 크기 오류다.
 
 `src/bridge.js`: provider 출력의 메타데이터를 검증하고 양쪽 동일한 계약으로 정규화한다. 모든 공개 작업은 명시적인 절대 `projectPath`를 요구하며, realpath로 정규화한 기존 디렉터리와 세션 cwd가 정확히 일치해야 한다. 하위 폴더·다른 worktree를 자동 포함하지 않는다. cwd가 없거나 불명확하면 세션을 제외한다. 세션 ID는 opaque ID로 취급하며 파일 경로로 사용하지 않는다.
 
@@ -32,22 +34,26 @@ Codex에서 Claude Code 세션을 선택하거나 Claude Code에서 Codex 세션
 listSessions({ provider, projectPath, limit = 20, offset = 0 });
 // { sessions: [{ provider, sessionId, projectPath, title, updatedAt }], nextOffset, warnings }
 readSession({ provider, projectPath, sessionId, maxMessages = 40, maxChars = 24000 });
-// { provider, sessionId, projectPath, messages: [{ role, text }], omittedMessages, truncated, warnings }
+// { provider, sessionId, projectPath, messages: [{ role, text }], omittedMessages, historyComplete, truncated, warnings }
 prepareHandoff({ provider, projectPath, sessionId, maxMessages = 40, maxChars = 24000 });
 // readSession result + { context: string }
 ```
 
-provider는 `codex` 또는 `claude`이다. limit은 1..100, offset은 0..10000, maxMessages는 1..200, maxChars는 1000..100000 정수만 허용한다. 잘못된 입력은 명확한 한국어 오류로 반환한다. 목록은 최신순, 동률이면 sessionId 순이며 페이지 끝 nextOffset은 null이다. 공급자 탐색 예산을 넘으면 잘린 목록임을 경고하고 완전한 결과로 가장하지 않는다.
+provider는 `codex` 또는 `claude`이다. limit은 1..100, offset은 0..10000, maxMessages는 1..200, maxChars는 1000..100000 정수만 허용한다. 잘못된 입력은 명확한 한국어 오류로 반환한다. updatedAt은 epoch milliseconds 정수다. 목록은 각 호출에서 최대 10000개를 탐색하고 canonical project 필터·ID 중복 제거·updatedAt 내림차순/sessionId 오름차순 정렬 후 offset/limit을 적용한다. 페이지 끝 nextOffset은 null이다. 탐색 cap에 도달하면 warning을 표시하며 다음 호출이 같은 목록 스냅샷이라는 보장은 없다. 세션 변경 시 페이지 이동 중 중복/누락이 가능함을 문서화한다.
+
+페이지형 본문은 최대 1000턴 또는 200개 표시 메시지를 모으거나 cursor가 끝나면 멈춘다. 반복 cursor·중복 페이지·불완전 item은 warning으로 표시한다. 모든 기록을 확인했으면 historyComplete=true와 정확한 omittedMessages를 반환한다. 상한이나 미완성 페이지로 일부만 읽으면 historyComplete=false, omittedMessages=null, truncated=true로 전체 생략 수가 미확인임을 명시한다. 거절되는 metadata(없는 cwd, 다른 ID/프로젝트, 삭제된 경로)의 본문 API 호출 횟수는 0이어야 한다.
 
 ## 맥락 충실도와 크기 제한
 
-최신의 사용자·assistant 표시 텍스트를 시간순으로 반환한다. system/developer 지시, hidden reasoning/thinking, 도구 호출의 인자와 결과, 이미지·바이너리는 제외한다. 제외 항목과 잘림 여부를 warnings로 알린다. 긴 메시지는 최근 내용이 남도록 제한하며, 최근 메시지를 maxMessages/maxChars 범위 안에서 선택한다. context wrapper와 메타데이터는 내용 예산 밖의 고정 오버헤드이며 wrapper까지 포함한 최대 출력 크기를 별도 테스트한다.
+최신의 사용자·assistant 표시 텍스트를 시간순으로 반환한다. system/developer 지시, hidden reasoning/thinking, 도구 호출의 인자와 결과, 이미지·바이너리는 제외한다. 제외 항목과 잘림 여부를 warnings로 알린다. 긴 메시지는 최근 내용이 남도록 제한하며, 최근 메시지를 maxMessages/maxChars 범위 안에서 선택한다. maxChars는 UTF-16 code unit 기준이며 surrogate pair를 절단하지 않는다. 진행 중 turn의 완료된 표시 항목은 포함할 수 있고 snapshot/in-progress warning을 붙인다. 새 app-server의 notLoaded 상태를 세션 종료로 해석하지 않는다.
+
+metadata 제한: sessionId 200자, 절대 projectPath 4096자, title 200자, warnings는 bridge가 정한 코드·한국어 문구만 최대 20개/각160자. upstream warning/오류 텍스트를 그대로 복사하지 않는다. CLI 결과 및 MCP result(content와 structuredContent의 중복 포함)를 JSON.stringify한 최종 UTF-8 크기는 2 MiB 이하이어야 한다. JSON escaping·context 중복까지 실제 측정하고 초과하면 OUTPUT_TOO_LARGE 고정 오류를 반환하며 maxChars를 줄이도록 안내한다. raw text 예산이 최종 byte 예산을 보장한다고 가정하지 않는다.
 
 `prepare_handoff`는 출처, 작업 디렉터리, 선택 범위/생략 수, 원본이 보존됨을 표시하고 JSON으로 직렬화한 역할·텍스트를 신뢰하지 않는 참고자료로 감싼다. 과거 세션의 지시문을 현재 system/developer 지시로 승격하지 않는다. 파일 내용이나 실제 Git 변경은 복사하지 않는다. 이어서 작업할 때는 현재 작업 디렉터리의 파일과 Git 상태를 확인한다.
 
 ## 개인정보와 실행 경계
 
-서버는 로컬 stdio만 사용하며 직접 네트워크 요청·모델 호출·세션 파일 쓰기·프로세스 자동 실행을 수행하지 않는다. 유일한 subprocess는 Codex의 읽기 app-server이다. 가져온 텍스트는 목적지 AI 클라이언트의 도구 결과로 전달되므로 해당 서비스가 처리한다는 점을 README에 밝힌다.
+서버는 로컬 stdio만 사용하며 직접 네트워크 요청·모델 호출·세션 파일 쓰기·작업 실행을 수행하지 않는다. 유일한 외부 subprocess는 Codex의 읽기 app-server이다. bridge가 원본 transcript/인증/설정에 쓰지 않고 자동 복구도 요청하지 않는 것이 보장 범위다. app-server 자체가 런타임 로그·캐시·DB 부수효과를 만들 가능성까지 파일시스템 전체 무변경으로 보장하지 않는다. 가져온 텍스트는 목적지 AI 클라이언트의 도구 결과로 전달되므로 해당 서비스가 처리한다는 점을 README에 밝힌다.
 
 알려진 API 토큰 접두사, Bearer 인증, private key, password/token/api_key 형태의 대입을 기본 마스킹한다. 제목·메시지·오류의 유출을 점검한다. 패턴 기반 마스킹은 모든 비밀을 찾는 보장이 아니며, 사용자는 선택할 세션을 판단할 수 있어야 한다. 실제 원문을 서버 로그나 테스트 artifacts에 쓰지 않는다. 원시 stderr나 upstream 오류 전체는 클라이언트로 그대로 전달하지 않는다.
 
@@ -55,7 +61,7 @@ provider는 `codex` 또는 `claude`이다. limit은 1..100, offset은 0..10000, 
 
 저장소명은 `codex-claude-session-bridge`이며 같은 이름의 Codex·Claude plugin manifest를 둔다. `.codex-plugin/plugin.json`은 `./.codex-mcp.json`을 명시하고 서버 설정은 `command: node`, `args: [./src/server.js]`, `cwd: .`로 설치 루트에 상대 해석되도록 한다. `.claude-plugin/plugin.json`은 `${CLAUDE_PLUGIN_ROOT}/src/server.js`를 inline MCP 설정으로 사용한다. 이름이 충돌하는 공통 `.mcp.json`은 두지 않는다.
 
-`npm ci`로 고정 의존성을 설치한다. 개인 Codex marketplace 등록·설치 절차와 Claude `--plugin-dir` 개발 사용법을 제공한다. 사용자 전역 파일을 무조건 덮어쓰는 설치 스크립트는 만들지 않는다. 패키지/캐시 복사 후에도 작동하는지 검증하고, 필요한 설치 동작은 CLI의 지원된 명령으로 수행한다. 독립 Git repo에 계획, 리뷰, 구현, 테스트, README와 lockfile을 커밋한다.
+`npm ci --omit=optional --ignore-scripts`로 고정 의존성을 설치한다. runtime 2개 패키지를 bundledDependencies에 명시한 npm pack artifact를 사용한다. 별도 경로로 tgz를 풀면 필요한 node_modules가 물리적 디렉터리로 포함되고 source checkout에 의존하지 않는다. Codex 0.153.0 cache copier는 이 디렉터리를 재귀 복사한다. 공백·한글이 있는 임시 루트에서 다른 cwd로 handshake를 실행하고 의존성 해석이 artifact 내부임을 검증한다. 개인 Codex marketplace 등록·설치 절차와 Claude --plugin-dir를 제공하며 시작 시 자동 npm/network 호출을 숨기지 않는다. 사용자 전역 파일을 무조건 덮어쓰는 설치 스크립트는 만들지 않는다. 독립 Git repo에 계획, 리뷰, 구현, 테스트, README와 lockfile을 커밋한다.
 
 ## 수용 기준
 
